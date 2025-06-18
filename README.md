@@ -6,7 +6,7 @@ This project is a face recognition-based attendance system that uses OpenCV and 
 
 1. Clone the repository to your local machine. ``` git clone https://github.com/OrifjonKenjayev/face_id ```
 2. Install the required packages using ```pip install -r requirements.txt```.
-3. Download the dlib models from https://drive.google.com/drive/folders/12It2jeNQOxwStBxtagL1vvIJokoz-DL4?usp=sharing and place the data folder inside the repo
+3. Download the dlib models from https://drive.google.com/drive/folders/1TsaDpsBCvyTVI3PJmfqp8_en5IKrHevg?usp=sharing and place the data folder inside the repo
 
 ## Usage
 
