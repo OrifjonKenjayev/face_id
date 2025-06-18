@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face ID Liveness Check</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f2f5;
+            color: #333;
+        }
+        h1 {
+            color: #1c1e21;
+        }
+        .camera-container {
+            position: relative;
+            width: 640px;
+            height: 480px;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            background-color: #000;
+        }
+        #videoElement, #overlayCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        #videoElement {
+            object-fit: cover;
+        }
+        .status-box {
+            margin-top: 20px;
+            padding: 15px 25px;
+            border-radius: 8px;
+            font-size: 1.5em;
+            font-weight: 500;
+            background-color: #fff;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+        }
+        .status-box.challenge { background-color: #fffbe6; color: #f59e0b; }
+        .status-box.verified { background-color: #f0fdf4; color: #22c55e; }
+        .status-box.error { background-color: #fef2f2; color: #ef4444; }
+    </style>
+</head>
+<body>
+    <h1>Liveness Verification</h1>
+    <div class="camera-container">
+        <video id="videoElement" autoplay playsinline></video>
+        <canvas id="overlayCanvas"></canvas>
+    </div>
+    <div id="statusBox" class="status-box">Initializing Camera...</div>
+    
+    <script>
+        const video = document.getElementById('videoElement');
+        const overlayCanvas = document.getElementById('overlayCanvas');
+        const overlayCtx = overlayCanvas.getContext('2d');
+        const statusBox = document.getElementById('statusBox');
+
+        let processing = false;
+
+        async function setupCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+                video.srcObject = stream;
+                video.addEventListener('loadedmetadata', () => {
+                    overlayCanvas.width = video.videoWidth;
+                    overlayCanvas.height = video.videoHeight;
+                    // Start processing frames
+                    setInterval(processFrame, 300); // Send a frame every 300ms
+                });
+            } catch (err) {
+                console.error("Error accessing camera: ", err);
+                statusBox.textContent = "Error: Camera access denied.";
+                statusBox.className = 'status-box error';
+            }
+        }
+
+        async function processFrame() {
+            if (processing) return; // Don't send a new frame until the old one is processed
+            processing = true;
+
+            // Create a temporary canvas to grab a frame
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = video.videoWidth;
+            tempCanvas.height = video.videoHeight;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
+
+            const imageData = tempCanvas.toDataURL('image/jpeg', 0.8);
+
+            try {
+                // *** FIX: Changed fetch URL from "/process" to "/recognition/process" ***
+                const response = await fetch('/recognition/process', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image: imageData })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status}`);
+                }
+
+                const result = await response.json();
+                handleResult(result);
+
+            } catch (error) {
+                console.error('Error processing frame:', error);
+                statusBox.textContent = "Connection Error";
+                statusBox.className = 'status-box error';
+            } finally {
+                processing = false;
+            }
+        }
+
+        function handleResult(result) {
+            // Clear previous drawings
+            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            
+            let statusText = "Searching for face...";
+            statusBox.className = 'status-box';
+            
+            const name = result.name || 'Unknown';
+            let color = '#facc15'; // Yellow for challenge
+
+            if (result.status === 'verified') {
+                statusText = `Verified: ${name}`;
+                statusBox.className = 'status-box verified';
+                color = '#22c55e'; // Green
+            } else if (result.status === 'unknown') {
+                statusText = 'Unknown Person';
+                color = '#ef4444'; // Red
+            } else if (result.status === 'challenge' && result.challenge) {
+                statusText = `Challenge: ${result.challenge.replace(/_/g, ' ')}`;
+                statusBox.className = 'status-box challenge';
+            } else if (result.status === 'timeout') {
+                statusText = 'Challenge Timed Out. Retrying...';
+                statusBox.className = 'status-box error';
+            } else if (result.status === 'no_face') {
+                 statusText = 'No face detected.';
+            }
+
+            statusBox.textContent = statusText;
+
+            // Draw bounding box if it exists
+            if (result.box) {
+                const [x, y, w, h] = result.box;
+                overlayCtx.strokeStyle = color;
+                overlayCtx.lineWidth = 4;
+                overlayCtx.strokeRect(x, y, w, h);
+
+                // Draw name tag
+                overlayCtx.fillStyle = color;
+                overlayCtx.font = 'bold 18px sans-serif';
+                const displayName = result.status === 'verified' ? `${name} - Verified` : name;
+                overlayCtx.fillText(displayName, x, y > 20 ? y - 10 : y + h + 20);
+            }
+        }
+
+        setupCamera();
+    </script>
+</body>
+</html>
